@@ -22,6 +22,7 @@ import {
     UploadCodeError,
     UserMessageNotFoundError,
     WorkspaceFolderNotFoundError,
+    ZipFileError,
     createUserFacingErrorMessage,
     denyListedErrors,
 } from '../../errors'
@@ -305,12 +306,18 @@ export class FeatureDevController {
                     case DevPhase.CODEGEN:
                         if (this.retriesRemaining(session) === 0) {
                             defaultMessage = ErrorMessages.codeGen.denyListedError
-                        } else {
+                        } else if (err instanceof ZipFileError) {
+                this.messenger.sendErrorMessage(
+                    '',
+                    message.tabID,
+                    0,
+                    session?.conversationIdUnsafe
+                )
+            } else {
                             defaultMessage = ErrorMessages.codeGen.default
                         }
                         break
                 }
-
                 this.messenger.sendErrorMessage(
                     defaultMessage ? defaultMessage : errorMessage,
                     message.tabID,
@@ -512,15 +519,42 @@ export class FeatureDevController {
             session.initCodegen()
             await this.onCodeGeneration(session, '', message.tabID)
         } catch (err: any) {
-            const errorMessage = createUserFacingErrorMessage(
-                `${featureName} request failed: ${err.cause?.message ?? err.message}`
-            )
-            this.messenger.sendErrorMessage(
-                errorMessage,
-                message.tabID,
-                this.retriesRemaining(session),
-                session?.conversationIdUnsafe
-            )
+            if (err instanceof ContentLengthError) {
+                this.messenger.sendErrorMessage(
+                    err.message,
+                    message.tabID,
+                    this.retriesRemaining(session),
+                    session?.conversationIdUnsafe
+                )
+                this.messenger.sendAnswer({
+                    type: 'system-prompt',
+                    tabID: message.tabID,
+                    followUps: [
+                        {
+                            pillText: 'Select files for context',
+                            type: 'ModifyDefaultSourceFolder',
+                            status: 'info',
+                        },
+                    ],
+                })
+            } else if (err instanceof ZipFileError) {
+                this.messenger.sendErrorMessage(
+                    '',
+                    message.tabID,
+                    0,
+                    session?.conversationIdUnsafe
+                )
+            } else {
+                const errorMessage = createUserFacingErrorMessage(
+                    `${featureName} request failed: ${err.cause?.message ?? err.message}`
+                )
+                this.messenger.sendErrorMessage(
+                    errorMessage,
+                    message.tabID,
+                    this.retriesRemaining(session),
+                    session?.conversationIdUnsafe
+                )
+            }
         }
     }
 
